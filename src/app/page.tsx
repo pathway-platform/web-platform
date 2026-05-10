@@ -176,7 +176,7 @@ function MenuIngestionStep({ onComplete }: { onComplete: () => void }) {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [items, setItems] = useState<MenuItem[]>([]);
 
-  const runIngestion = async () => {
+  const runParse = async () => {
     setProcessingError(null);
     setPhase("processing");
     setStage("parse");
@@ -191,16 +191,9 @@ function MenuIngestionStep({ onComplete }: { onComplete: () => void }) {
         throw new Error(body.detail ?? body.error ?? `HTTP ${r1.status}`);
       }
 
-      setStage("extract");
-      const r2 = await fetch("/api/extract-recipe", { method: "POST" });
-      if (!r2.ok) {
-        const body = await r2.json().catch(() => ({}));
-        throw new Error(body.detail ?? body.error ?? `HTTP ${r2.status}`);
-      }
-
-      const r3 = await fetch("/api/menu-items");
-      if (!r3.ok) throw new Error(`Could not load menu items (HTTP ${r3.status})`);
-      const data = await r3.json();
+      const r2 = await fetch("/api/menu-items");
+      if (!r2.ok) throw new Error(`Could not load menu items (HTTP ${r2.status})`);
+      const data = await r2.json();
       setItems(data.items as MenuItem[]);
       setPhase("details");
     } catch (err) {
@@ -208,9 +201,25 @@ function MenuIngestionStep({ onComplete }: { onComplete: () => void }) {
     }
   };
 
+  const runExtract = async () => {
+    setProcessingError(null);
+    setPhase("processing");
+    setStage("extract");
+    try {
+      const r = await fetch("/api/extract-recipe", { method: "POST" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`);
+      }
+      onComplete();
+    } catch (err) {
+      setProcessingError((err as Error).message || "Pipeline failed");
+    }
+  };
+
   const handleSubmitUrl = (e: React.FormEvent) => {
     e.preventDefault();
-    runIngestion();
+    runParse();
   };
 
   return (
@@ -222,16 +231,16 @@ function MenuIngestionStep({ onComplete }: { onComplete: () => void }) {
       )}
 
       {phase === "details" && (
-        <ItemsServingTable items={items} onSaved={onComplete} />
+        <ItemsServingTable items={items} onSaved={runExtract} />
       )}
 
       {phase === "processing" && (
         <ProcessingModal
           stage={stage}
           error={processingError}
-          onRetry={runIngestion}
+          onRetry={stage === "parse" ? runParse : runExtract}
           onCancel={() => {
-            setPhase("url");
+            setPhase(stage === "extract" ? "details" : "url");
             setProcessingError(null);
           }}
         />
