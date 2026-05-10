@@ -136,27 +136,29 @@ function PipelineFlow({
   onPipelineComplete: () => void;
 }) {
   const [currentStep, setCurrentStep] = useState(initialStep);
+  const [autoSendAfterDiscovery, setAutoSendAfterDiscovery] = useState(false);
 
   return (
     <div className="flex min-h-screen flex-1 flex-col">
-      <Stepper
-        steps={steps}
-        currentStep={currentStep}
-        onSelect={setCurrentStep}
-      />
+      <Stepper steps={steps} currentStep={currentStep} />
 
       <section className="flex flex-1 flex-col items-center px-6 py-12 sm:px-12">
         {currentStep === 1 && (
           <MenuIngestionStep onComplete={() => setCurrentStep(2)} />
         )}
-        {currentStep === 2 && (
-          <PricingTrendsRunStep onComplete={() => setCurrentStep(3)} />
+        {currentStep === 2 && <PricingTrendsRunStep />}
+        {currentStep === 3 && (
+          <DistributorDiscoveryStep
+            onSendInstantly={() => {
+              setAutoSendAfterDiscovery(true);
+              setCurrentStep(4);
+            }}
+          />
         )}
-        {currentStep === 3 && <DistributorDiscoveryStep />}
         {currentStep === 4 && (
           <RfpSendStep
             onComplete={onPipelineComplete}
-            autoRun={autoRunRfps}
+            autoRun={autoRunRfps || autoSendAfterDiscovery}
           />
         )}
       </section>
@@ -611,7 +613,7 @@ function ItemsServingTable({
           We extracted{" "}
           <span className="font-semibold text-zinc-900">{items.length}</span>{" "}
           item{items.length === 1 ? "" : "s"}. Set serving size and daily
-          servings for each — these power downstream pricing analysis.
+          servings for each, these power downstream RFP requests.
         </p>
       </div>
 
@@ -654,7 +656,7 @@ function ItemsServingTable({
                         onChange={(e) =>
                           updateDraft(it.id, "serving_size", e.target.value)
                         }
-                        placeholder="e.g. 250g"
+                        placeholder="e.g. 8 Slices"
                         className="block h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                       />
                     </td>
@@ -699,7 +701,8 @@ function ItemsServingTable({
   );
 }
 
-function PricingTrendsRunStep({ onComplete }: { onComplete: () => void }) {
+function PricingTrendsRunStep() {
+  const router = useRouter();
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -712,7 +715,7 @@ function PricingTrendsRunStep({ onComplete }: { onComplete: () => void }) {
         const body = await r.json().catch(() => ({}));
         throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`);
       }
-      onComplete();
+      router.push("/pricing-trends");
     } catch (err) {
       setError((err as Error).message || "Failed to run pricing trends");
       setRunning(false);
@@ -751,9 +754,14 @@ function PricingTrendsRunStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function DistributorDiscoveryStep() {
+function DistributorDiscoveryStep({
+  onSendInstantly,
+}: {
+  onSendInstantly: () => void;
+}) {
   const router = useRouter();
   const [address, setAddress] = useState("");
+  const [sendInstantly, setSendInstantly] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -768,7 +776,11 @@ function DistributorDiscoveryStep() {
         const body = await r.json().catch(() => ({}));
         throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`);
       }
-      router.push("/distributors");
+      if (sendInstantly) {
+        onSendInstantly();
+      } else {
+        router.push("/distributors");
+      }
     } catch (err) {
       setError((err as Error).message || "Failed to discover distributors");
       setRunning(false);
@@ -815,6 +827,25 @@ function DistributorDiscoveryStep() {
               placeholder="123 Main St, Brooklyn, NY 11201"
               className="mt-2 block h-11 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
             />
+
+            <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 transition hover:bg-zinc-100">
+              <input
+                type="checkbox"
+                checked={sendInstantly}
+                onChange={(e) => setSendInstantly(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+              />
+              <span className="flex flex-col">
+                <span className="text-sm font-medium text-zinc-900">
+                  Send RFP emails instantly
+                </span>
+                <span className="mt-0.5 text-xs text-zinc-500">
+                  Skip the review step and email every matched distributor
+                  as soon as discovery finishes.
+                </span>
+              </span>
+            </label>
+
             <button
               type="submit"
               disabled={!address.trim() || running}
@@ -830,7 +861,7 @@ function DistributorDiscoveryStep() {
       {running && !error && (
         <SimpleLoadingModal
           title="Discovering distributors"
-          description="Geocoding your address, querying Google Places, and verifying nearby suppliers. This usually takes 30–90 seconds."
+          description="This usually takes a few minutes."
           error={null}
           onRetry={handleRun}
           onCancel={() => setRunning(false)}
@@ -1186,11 +1217,9 @@ function ConfirmResetModal({
 function Stepper({
   steps,
   currentStep,
-  onSelect,
 }: {
   steps: { id: number; title: string; description: string }[];
   currentStep: number;
-  onSelect: (id: number) => void;
 }) {
   return (
     <div className="border-b border-zinc-200 bg-white px-6 py-10 sm:px-12 sm:py-12">
@@ -1211,37 +1240,31 @@ function Stepper({
             return (
               <Fragment key={step.id}>
                 <li className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => onSelect(step.id)}
-                    className="group flex items-start gap-3 text-left"
+                  <span
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 text-base font-semibold ${
+                      isActive
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                        : isComplete
+                          ? "border-zinc-900 bg-white text-zinc-900"
+                          : "border-zinc-300 bg-white text-zinc-400"
+                    }`}
                   >
+                    {isComplete ? <CheckIcon className="h-5 w-5" /> : step.id}
+                  </span>
+                  <span className="flex flex-col pt-0.5">
                     <span
-                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 text-base font-semibold transition ${
-                        isActive
-                          ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                          : isComplete
-                            ? "border-zinc-900 bg-white text-zinc-900"
-                            : "border-zinc-300 bg-white text-zinc-400 group-hover:border-zinc-400"
+                      className={`text-sm font-semibold tracking-tight sm:text-base ${
+                        isActive || isComplete
+                          ? "text-zinc-900"
+                          : "text-zinc-400"
                       }`}
                     >
-                      {isComplete ? <CheckIcon className="h-5 w-5" /> : step.id}
+                      {step.title}
                     </span>
-                    <span className="flex flex-col pt-0.5">
-                      <span
-                        className={`text-sm font-semibold tracking-tight sm:text-base ${
-                          isActive || isComplete
-                            ? "text-zinc-900"
-                            : "text-zinc-400"
-                        }`}
-                      >
-                        {step.title}
-                      </span>
-                      <span className="mt-0.5 hidden text-xs text-zinc-500 sm:block">
-                        {step.description}
-                      </span>
+                    <span className="mt-0.5 hidden text-xs text-zinc-500 sm:block">
+                      {step.description}
                     </span>
-                  </button>
+                  </span>
                 </li>
                 {!isLast && (
                   <div

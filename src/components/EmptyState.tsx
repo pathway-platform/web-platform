@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export default function EmptyState({
-  message = "No data present. Run the ETL pipeline for data to show up here.",
+  message = "No data present. Run the complete ETL pipeline for data to show up here.",
 }: {
   message?: string;
 }) {
