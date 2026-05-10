@@ -10,6 +10,11 @@ const navItems = [
   { label: "Pricing Trends", href: "/pricing-trends", icon: TrendIcon },
   { label: "Distributors", href: "/distributors", icon: DistributorsIcon },
   { label: "RFP Requests", href: "/rfp-requests", icon: RfpIcon },
+  {
+    label: "Recommendations",
+    href: "/recommendations",
+    icon: RecommendationsIcon,
+  },
 ];
 
 export default function Sidebar() {
@@ -147,6 +152,23 @@ function RfpIcon({ className }: { className?: string }) {
       <path d="M16 4v4h4" />
       <path d="M8 13h8" />
       <path d="M8 17h5" />
+    </svg>
+  );
+}
+
+function RecommendationsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8 6.8 19.1l1-5.8L3.5 9.2l5.9-.9Z" />
     </svg>
   );
 }
