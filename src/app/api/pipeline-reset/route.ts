@@ -7,6 +7,10 @@ export async function POST() {
   try {
     await pool.query(
       `TRUNCATE
+         pathway.rfp_line_items,
+         pathway.rfp_requests,
+         pathway.distributor_ingredient,
+         pathway.distributors,
          pathway.recipe_ingredients,
          pathway.recipe,
          pathway.ingredients,

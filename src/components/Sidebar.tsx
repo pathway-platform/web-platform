@@ -8,6 +8,8 @@ const navItems = [
   { label: "Menu", href: "/menu", icon: MenuIcon },
   { label: "Ingredients", href: "/ingredients", icon: IngredientsIcon },
   { label: "Pricing Trends", href: "/pricing-trends", icon: TrendIcon },
+  { label: "Distributors", href: "/distributors", icon: DistributorsIcon },
+  { label: "RFP Requests", href: "/rfp-requests", icon: RfpIcon },
 ];
 
 export default function Sidebar() {
@@ -104,6 +106,47 @@ function TrendIcon({ className }: { className?: string }) {
     >
       <path d="M3 17 9 11l4 4 8-8" />
       <path d="M14 7h7v7" />
+    </svg>
+  );
+}
+
+function DistributorsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 7h13l5 4v6h-2" />
+      <path d="M3 7v10h2" />
+      <circle cx="7" cy="17" r="2" />
+      <circle cx="17" cy="17" r="2" />
+      <path d="M9 17h6" />
+    </svg>
+  );
+}
+
+function RfpIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4h12l4 4v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+      <path d="M16 4v4h4" />
+      <path d="M8 13h8" />
+      <path d="M8 17h5" />
     </svg>
   );
 }

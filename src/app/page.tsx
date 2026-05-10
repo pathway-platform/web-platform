@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const steps = [
@@ -12,13 +12,25 @@ const steps = [
   {
     id: 2,
     title: "Pricing Trends",
-    description: "Track and analyze pricing.",
+    description: "Track ingredient pricing.",
+  },
+  {
+    id: 3,
+    title: "Distributors",
+    description: "Discover nearby suppliers.",
+  },
+  {
+    id: 4,
+    title: "Send RFPs",
+    description: "Email purchase requests.",
   },
 ];
 
 type PipelineStatus = {
   menu_items_count: number;
   pricing_trends_count: number;
+  distributors_count: number;
+  rfp_requests_count: number;
 };
 
 type MenuItem = {
@@ -34,34 +46,46 @@ export default function Home() {
   const [status, setStatus] = useState<PipelineStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [forceFlow, setForceFlow] = useState(false);
+  const [autoRunRfps, setAutoRunRfps] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/pipeline-status")
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setStatus({
-            menu_items_count: data.menu_items_count ?? 0,
-            pricing_trends_count: data.pricing_trends_count ?? 0,
-          });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStatus({ menu_items_count: 0, pricing_trends_count: 0 });
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setStatusLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autorun") === "rfps") {
+      setAutoRunRfps(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("autorun");
+      window.history.replaceState({}, "", url.toString());
+    }
   }, []);
+
+  const fetchStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const r = await fetch("/api/pipeline-status");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      setStatus({
+        menu_items_count: data.menu_items_count ?? 0,
+        pricing_trends_count: data.pricing_trends_count ?? 0,
+        distributors_count: data.distributors_count ?? 0,
+        rfp_requests_count: data.rfp_requests_count ?? 0,
+      });
+    } catch {
+      setStatus({
+        menu_items_count: 0,
+        pricing_trends_count: 0,
+        distributors_count: 0,
+        rfp_requests_count: 0,
+      });
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   if (statusLoading || status === null) {
     return (
@@ -73,16 +97,44 @@ export default function Home() {
 
   const hasMenu = status.menu_items_count > 0;
   const hasPricing = status.pricing_trends_count > 0;
+  const hasDistributors = status.distributors_count > 0;
+  const hasRfps = status.rfp_requests_count > 0;
+  const allComplete = hasMenu && hasPricing && hasDistributors && hasRfps;
 
-  if (hasMenu && hasPricing && !forceFlow) {
+  if (allComplete && !forceFlow) {
     return <DataExistsView status={status} onRerun={() => setForceFlow(true)} />;
   }
 
-  const initialStep = hasMenu && !hasPricing ? 2 : 1;
-  return <PipelineFlow initialStep={initialStep} />;
+  const initialStep = !hasMenu
+    ? 1
+    : !hasPricing
+      ? 2
+      : !hasDistributors
+        ? 3
+        : 4;
+
+  return (
+    <PipelineFlow
+      initialStep={initialStep}
+      autoRunRfps={autoRunRfps}
+      onPipelineComplete={() => {
+        setForceFlow(false);
+        setAutoRunRfps(false);
+        fetchStatus();
+      }}
+    />
+  );
 }
 
-function PipelineFlow({ initialStep }: { initialStep: number }) {
+function PipelineFlow({
+  initialStep,
+  autoRunRfps,
+  onPipelineComplete,
+}: {
+  initialStep: number;
+  autoRunRfps: boolean;
+  onPipelineComplete: () => void;
+}) {
   const [currentStep, setCurrentStep] = useState(initialStep);
 
   return (
@@ -97,7 +149,16 @@ function PipelineFlow({ initialStep }: { initialStep: number }) {
         {currentStep === 1 && (
           <MenuIngestionStep onComplete={() => setCurrentStep(2)} />
         )}
-        {currentStep === 2 && <PricingTrendsRunStep />}
+        {currentStep === 2 && (
+          <PricingTrendsRunStep onComplete={() => setCurrentStep(3)} />
+        )}
+        {currentStep === 3 && <DistributorDiscoveryStep />}
+        {currentStep === 4 && (
+          <RfpSendStep
+            onComplete={onPipelineComplete}
+            autoRun={autoRunRfps}
+          />
+        )}
       </section>
     </div>
   );
@@ -241,8 +302,7 @@ function ProcessingModal({
     {
       key: "parse",
       title: "Scraping the menu",
-      description:
-        "This usually takes 10–30 seconds.",
+      description: "This usually takes 10–30 seconds.",
     },
     {
       key: "extract",
@@ -365,6 +425,93 @@ function ProcessingModal({
   );
 }
 
+function SimpleLoadingModal({
+  title,
+  description,
+  error,
+  onRetry,
+  onCancel,
+}: {
+  title: string;
+  description: string;
+  error: string | null;
+  onRetry: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="absolute inset-0 bg-zinc-900/40 backdrop-blur-sm" />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl ring-1 ring-zinc-200">
+        {error ? (
+          <>
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 ring-1 ring-red-200">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5 text-red-600"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 8v4" />
+                  <path d="M12 16h.01" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h2 className="text-base font-semibold text-zinc-900">
+                  Step failed
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-zinc-600">
+                  {title} did not complete.
+                </p>
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                  {error}
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="h-10 rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={onRetry}
+                className="h-10 rounded-lg bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800"
+              >
+                Retry
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-start gap-4">
+            <Spinner className="mt-0.5 h-6 w-6 text-zinc-700" />
+            <div className="flex-1">
+              <h2 className="text-base font-semibold text-zinc-900">
+                {title}…
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-zinc-600">
+                {description}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ItemsServingTable({
   items,
   onSaved,
@@ -375,8 +522,10 @@ function ItemsServingTable({
   const [drafts, setDrafts] = useState<
     Record<number, { servings_per_day: string; serving_size: string }>
   >(() => {
-    const init: Record<number, { servings_per_day: string; serving_size: string }> =
-      {};
+    const init: Record<
+      number,
+      { servings_per_day: string; serving_size: string }
+    > = {};
     for (const it of items) {
       init[it.id] = {
         servings_per_day: String(it.servings_per_day ?? 1),
@@ -462,7 +611,7 @@ function ItemsServingTable({
           We extracted{" "}
           <span className="font-semibold text-zinc-900">{items.length}</span>{" "}
           item{items.length === 1 ? "" : "s"}. Set serving size and daily
-          servings for each, these power downstream distributor quotes.
+          servings for each — these power downstream pricing analysis.
         </p>
       </div>
 
@@ -505,7 +654,7 @@ function ItemsServingTable({
                         onChange={(e) =>
                           updateDraft(it.id, "serving_size", e.target.value)
                         }
-                        placeholder="e.g. 8 slices"
+                        placeholder="e.g. 250g"
                         className="block h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                       />
                     </td>
@@ -550,8 +699,7 @@ function ItemsServingTable({
   );
 }
 
-function PricingTrendsRunStep() {
-  const router = useRouter();
+function PricingTrendsRunStep({ onComplete }: { onComplete: () => void }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -564,7 +712,7 @@ function PricingTrendsRunStep() {
         const body = await r.json().catch(() => ({}));
         throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`);
       }
-      router.push("/pricing-trends");
+      onComplete();
     } catch (err) {
       setError((err as Error).message || "Failed to run pricing trends");
       setRunning(false);
@@ -579,7 +727,8 @@ function PricingTrendsRunStep() {
         </h1>
         <p className="mt-3 text-base text-zinc-600">
           Pull the latest USDA AMS prices for every ingredient and compute
-          30-day and 90-day trends.
+          30-day and 90-day trends. After this you&apos;ll discover
+          distributors and send purchase RFPs.
         </p>
 
         <button
@@ -599,6 +748,224 @@ function PricingTrendsRunStep() {
         )}
       </div>
     </div>
+  );
+}
+
+function DistributorDiscoveryStep() {
+  const router = useRouter();
+  const [address, setAddress] = useState("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const r = await fetch(
+        `/api/fetch-distributors?address=${encodeURIComponent(address.trim())}`,
+      );
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`);
+      }
+      router.push("/distributors");
+    } catch (err) {
+      setError((err as Error).message || "Failed to discover distributors");
+      setRunning(false);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!address.trim() || running) return;
+    handleRun();
+  };
+
+  return (
+    <>
+      <div className="flex flex-1 items-center">
+        <div className="w-full max-w-xl">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl">
+              Find distributors near you
+            </h1>
+            <p className="mt-3 text-base text-zinc-600">
+              We need your restaurant&apos;s location to discover the closest
+              distributors that can supply your ingredients. After this
+              you&apos;ll send purchase RFPs.
+            </p>
+          </div>
+
+          <form
+            onSubmit={handleSubmit}
+            className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
+          >
+            <label
+              htmlFor="restaurant-address"
+              className="text-sm font-medium text-zinc-700"
+            >
+              Restaurant address
+            </label>
+            <input
+              id="restaurant-address"
+              type="text"
+              required
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="123 Main St, Brooklyn, NY 11201"
+              className="mt-2 block h-11 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+            />
+            <button
+              type="submit"
+              disabled={!address.trim() || running}
+              className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {running && <Spinner className="h-4 w-4" />}
+              {running ? "Discovering…" : "Start discovery"}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {running && !error && (
+        <SimpleLoadingModal
+          title="Discovering distributors"
+          description="Geocoding your address, querying Google Places, and verifying nearby suppliers. This usually takes 30–90 seconds."
+          error={null}
+          onRetry={handleRun}
+          onCancel={() => setRunning(false)}
+        />
+      )}
+
+      {error && (
+        <SimpleLoadingModal
+          title="Distributor discovery"
+          description=""
+          error={error}
+          onRetry={() => {
+            setError(null);
+            handleRun();
+          }}
+          onCancel={() => setError(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function RfpSendStep({
+  onComplete,
+  autoRun,
+}: {
+  onComplete: () => void;
+  autoRun: boolean;
+}) {
+  const [senderEmail, setSenderEmail] = useState("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const autoRunFiredRef = useRef(false);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/send-rfps", { method: "POST" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`);
+      }
+      onComplete();
+    } catch (err) {
+      setError((err as Error).message || "Failed to send RFPs");
+      setRunning(false);
+    }
+  };
+
+  useEffect(() => {
+    if (autoRun && !autoRunFiredRef.current) {
+      autoRunFiredRef.current = true;
+      handleRun();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (running) return;
+    handleRun();
+  };
+
+  return (
+    <>
+      <div className="flex flex-1 items-center">
+        <div className="w-full max-w-xl">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl">
+              Send RFP emails
+            </h1>
+            <p className="mt-3 text-base text-zinc-600">
+              Compose and send price-quote requests to every matched
+              distributor, with the right ingredients and quantities for each.
+            </p>
+          </div>
+
+          <form
+            onSubmit={handleSubmit}
+            className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
+          >
+            <label
+              htmlFor="sender-email"
+              className="text-sm font-medium text-zinc-700"
+            >
+              Sender email
+            </label>
+            <input
+              id="sender-email"
+              type="email"
+              value={senderEmail}
+              onChange={(e) => setSenderEmail(e.target.value)}
+              placeholder="orders@your-restaurant.com"
+              className="mt-2 block h-11 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+            />
+            <p className="mt-2 text-xs text-zinc-500">
+              For decorative purposes only — RFPs are sent from a demo account
+              for this MVP.
+            </p>
+            <button
+              type="submit"
+              disabled={running}
+              className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {running && <Spinner className="h-4 w-4" />}
+              {running ? "Sending…" : "Send RFPs"}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {running && !error && (
+        <SimpleLoadingModal
+          title="Sending RFP emails"
+          description="Composing one email per matched distributor with quantities and deadlines, then sending via Gmail SMTP."
+          error={null}
+          onRetry={handleRun}
+          onCancel={() => setRunning(false)}
+        />
+      )}
+
+      {error && (
+        <SimpleLoadingModal
+          title="RFP send"
+          description=""
+          error={error}
+          onRetry={() => {
+            setError(null);
+            handleRun();
+          }}
+          onCancel={() => setError(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -648,26 +1015,25 @@ function DataExistsView({
             </svg>
           </div>
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl">
-            Pipeline already complete
+            Pipeline complete
           </h1>
           <p className="mt-3 text-base leading-7 text-zinc-600">
-            Your menu and pricing trend data are already populated. Re-running
-            the pipeline will start a fresh ingestion from a new menu URL.
+            Your menu, pricing trends, distributors, and RFPs are all
+            populated. Re-running the pipeline will start a fresh ingestion
+            from a new menu URL.
           </p>
 
-          <div className="mt-6 flex gap-3 text-sm text-zinc-700">
-            <span className="rounded-full bg-zinc-100 px-3 py-1">
-              <span className="font-semibold tabular-nums text-zinc-900">
-                {status.menu_items_count}
-              </span>{" "}
-              menu items
-            </span>
-            <span className="rounded-full bg-zinc-100 px-3 py-1">
-              <span className="font-semibold tabular-nums text-zinc-900">
-                {status.pricing_trends_count}
-              </span>{" "}
-              pricing reports
-            </span>
+          <div className="mt-6 flex flex-wrap justify-center gap-2 text-sm text-zinc-700">
+            <CountChip label="menu items" value={status.menu_items_count} />
+            <CountChip
+              label="pricing reports"
+              value={status.pricing_trends_count}
+            />
+            <CountChip
+              label="distributors"
+              value={status.distributors_count}
+            />
+            <CountChip label="RFPs sent" value={status.rfp_requests_count} />
           </div>
 
           <button
@@ -709,6 +1075,15 @@ function DataExistsView({
         />
       )}
     </>
+  );
+}
+
+function CountChip({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="rounded-full bg-zinc-100 px-3 py-1">
+      <span className="font-semibold tabular-nums text-zinc-900">{value}</span>{" "}
+      {label}
+    </span>
   );
 }
 
@@ -770,10 +1145,10 @@ function ConfirmResetModal({
             <p className="mt-1 text-sm leading-6 text-zinc-600">
               This will{" "}
               <span className="font-medium text-zinc-900">
-                clear all existing data
+                clear all existing data,
               </span>{" "}
-              , including menu items, recipes, ingredients, and pricing trends. This
-              cannot be undone.
+              including menu items, recipes, ingredients, pricing trends, distributors,
+              and RFPs. This cannot be undone.
             </p>
           </div>
         </div>
@@ -819,60 +1194,63 @@ function Stepper({
 }) {
   return (
     <div className="border-b border-zinc-200 bg-white px-6 py-10 sm:px-12 sm:py-12">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-5xl">
         <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
           Pipeline
         </p>
         <h2 className="mb-8 text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl">
-          Menu → Pricing
+          Set up your platform
         </h2>
 
-        <ol className="flex items-start gap-5">
+        <ol className="flex items-start">
           {steps.map((step, idx) => {
             const isActive = step.id === currentStep;
             const isComplete = step.id < currentStep;
             const isLast = idx === steps.length - 1;
 
             return (
-              <li key={step.id} className="flex flex-1 items-start gap-5">
-                <button
-                  type="button"
-                  onClick={() => onSelect(step.id)}
-                  className="group flex flex-1 items-start gap-4 text-left"
-                >
-                  <span
-                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 text-base font-semibold transition ${
-                      isActive
-                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                        : isComplete
-                          ? "border-zinc-900 bg-white text-zinc-900"
-                          : "border-zinc-300 bg-white text-zinc-400 group-hover:border-zinc-400"
-                    }`}
+              <Fragment key={step.id}>
+                <li className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(step.id)}
+                    className="group flex items-start gap-3 text-left"
                   >
-                    {isComplete ? <CheckIcon className="h-5 w-5" /> : step.id}
-                  </span>
-                  <span className="flex flex-col pt-0.5">
                     <span
-                      className={`text-base font-semibold tracking-tight ${
-                        isActive || isComplete ? "text-zinc-900" : "text-zinc-400"
+                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 text-base font-semibold transition ${
+                        isActive
+                          ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                          : isComplete
+                            ? "border-zinc-900 bg-white text-zinc-900"
+                            : "border-zinc-300 bg-white text-zinc-400 group-hover:border-zinc-400"
                       }`}
                     >
-                      {step.title}
+                      {isComplete ? <CheckIcon className="h-5 w-5" /> : step.id}
                     </span>
-                    <span className="mt-0.5 text-sm text-zinc-500">
-                      {step.description}
+                    <span className="flex flex-col pt-0.5">
+                      <span
+                        className={`text-sm font-semibold tracking-tight sm:text-base ${
+                          isActive || isComplete
+                            ? "text-zinc-900"
+                            : "text-zinc-400"
+                        }`}
+                      >
+                        {step.title}
+                      </span>
+                      <span className="mt-0.5 hidden text-xs text-zinc-500 sm:block">
+                        {step.description}
+                      </span>
                     </span>
-                  </span>
-                </button>
-
+                  </button>
+                </li>
                 {!isLast && (
                   <div
-                    className={`mt-6 h-0.5 flex-1 rounded-full ${
+                    className={`mx-3 mt-6 h-0.5 flex-1 rounded-full ${
                       isComplete ? "bg-zinc-900" : "bg-zinc-200"
                     }`}
                   />
                 )}
-              </li>
+              </Fragment>
             );
           })}
         </ol>
