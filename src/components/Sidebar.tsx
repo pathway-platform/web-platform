@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 
 const navItems = [
   { label: "Home", href: "/", icon: HomeIcon },
+  { label: "Menu", href: "/menu", icon: MenuIcon },
+  { label: "Ingredients", href: "/ingredients", icon: IngredientsIcon },
+  { label: "Pricing Trends", href: "/pricing-trends", icon: TrendIcon },
 ];
 
 export default function Sidebar() {
@@ -23,7 +26,10 @@ export default function Sidebar() {
 
       <nav className="flex flex-col gap-1">
         {navItems.map((item) => {
-          const active = pathname === item.href;
+          const active =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
             <Link
@@ -60,6 +66,64 @@ function HomeIcon({ className }: { className?: string }) {
       <path d="M3 10.5 12 3l9 7.5" />
       <path d="M5 9.5V21h14V9.5" />
       <path d="M10 21v-6h4v6" />
+    </svg>
+  );
+}
+
+function MenuIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 3h11a2 2 0 0 1 2 2v16l-3-2-3 2-3-2-3 2-3-2V5a2 2 0 0 1 2-2Z" />
+      <path d="M9 8h7" />
+      <path d="M9 12h7" />
+      <path d="M9 16h4" />
+    </svg>
+  );
+}
+
+function TrendIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 17 9 11l4 4 8-8" />
+      <path d="M14 7h7v7" />
+    </svg>
+  );
+}
+
+function IngredientsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 11a7 7 0 0 1 14 0" />
+      <path d="M3 14h18" />
+      <path d="M5 18h14" />
+      <path d="M9 7c0-1.5 1.5-3 3-3" />
     </svg>
   );
 }
